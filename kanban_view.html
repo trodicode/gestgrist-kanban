@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vue Kanban</title>
+    <!-- Chargement de Tailwind CSS pour un style rapide et moderne -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Styles personnalisés pour la vue Kanban */
+        body {
+            font-family: 'Inter', sans-serif; /* Utilisation de la police Inter */
+            background-color: #f4f7f6; /* Arrière-plan doux */
+            overflow-x: auto; /* Permet le défilement horizontal si de nombreuses colonnes */
+            margin: 0;
+            padding: 0;
+            height: 100vh; /* Prend toute la hauteur de la fenêtre */
+            display: flex;
+            flex-direction: column;
+        }
+        .kanban-container {
+            display: flex;
+            gap: 1.5rem; /* Espacement entre les colonnes */
+            padding: 1.5rem;
+            flex-grow: 1; /* Permet au conteneur de prendre l'espace disponible */
+            align-items: flex-start; /* Aligne les colonnes en haut */
+        }
+        .kanban-column {
+            flex-shrink: 0; /* Empêche les colonnes de rétrécir */
+            width: 320px; /* Largeur fixe pour les colonnes */
+            background-color: #e0e7ff; /* Arrière-plan bleu clair pour les colonnes */
+            border-radius: 0.75rem; /* Coins arrondis */
+            padding: 1.25rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Ombre plus prononcée */
+            display: flex;
+            flex-direction: column;
+            min-height: 200px; /* Hauteur minimale pour les colonnes vides */
+        }
+        .column-header {
+            font-weight: 700; /* Plus gras */
+            font-size: 1.5rem; /* Plus grande taille de police */
+            margin-bottom: 1.25rem;
+            color: #2563eb; /* Couleur bleue plus vive pour les titres */
+            text-align: center;
+            border-bottom: 2px solid #93c5fd; /* Soulignement */
+            padding-bottom: 0.75rem;
+        }
+        .cards-container {
+            flex-grow: 1; /* Permet aux cartes de remplir la hauteur de la colonne */
+            display: flex;
+            flex-direction: column;
+            gap: 1rem; /* Espacement entre les cartes */
+        }
+        .kanban-card {
+            background-color: #ffffff;
+            border-radius: 0.625rem; /* Coins légèrement plus arrondis */
+            padding: 1.25rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); /* Ombre subtile */
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            border: 1px solid #e5e7eb; /* Bordure légère */
+        }
+        .kanban-card:hover {
+            transform: translateY(-3px); /* Effet de survol léger */
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15); /* Ombre plus prononcée au survol */
+        }
+        .card-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #1f2937;
+            margin-bottom: 0.625rem;
+            line-height: 1.4;
+        }
+        .card-assignee {
+            font-size: 0.95rem;
+            color: #4b5563;
+            font-style: italic;
+        }
+        #loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-grow: 1;
+            font-size: 1.5rem;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <div id="kanban-app" class="kanban-container">
+        <!-- Les colonnes Kanban seront rendues ici par JavaScript -->
+        <div id="loading" class="text-gray-600 text-lg p-4">Chargement de votre vue Kanban...</div>
+    </div>
+
+    <script type="module">
+        // Importation de l'API Grist
+        import * as grist from 'https://docs.getgrist.com/grist-plugin-api.js';
+
+        let records = []; // Pour stocker les enregistrements récupérés
+        let kanbanAppDiv;
+
+        // Fonction pour rendre le tableau Kanban
+        function renderKanban() {
+            if (!kanbanAppDiv) {
+                kanbanAppDiv = document.getElementById('kanban-app');
+            }
+            if (!kanbanAppDiv) {
+                console.error("L'élément avec l'ID 'kanban-app' est introuvable.");
+                return;
+            }
+
+            // Efface le contenu précédent
+            kanbanAppDiv.innerHTML = '';
+
+            if (records.length === 0) {
+                kanbanAppDiv.innerHTML = '<div class="text-gray-600 text-lg p-4">Aucune tâche trouvée dans votre table.</div>';
+                return;
+            }
+
+            // Regroupe les enregistrements par 'Statut'
+            const columns = {};
+            const allStatuses = new Set(); // Pour maintenir l'ordre des colonnes en fonction de leur première apparition
+
+            records.forEach(record => {
+                // Utilise 'Non défini' si le statut est vide ou null
+                const status = record.Statut && record.Statut.trim() !== '' ? record.Statut : 'Non défini';
+                allStatuses.add(status);
+                if (!columns[status]) {
+                    columns[status] = [];
+                }
+                columns[status].push(record);
+            });
+
+            // Trie les statuts pour assurer un ordre de colonne cohérent (par exemple, alphabétique)
+            const sortedStatuses = Array.from(allStatuses).sort();
+
+            sortedStatuses.forEach(status => {
+                const columnDiv = document.createElement('div');
+                columnDiv.className = 'kanban-column';
+
+                const columnHeader = document.createElement('div');
+                columnHeader.className = 'column-header';
+                columnHeader.textContent = status;
+                columnDiv.appendChild(columnHeader);
+
+                const cardsContainer = document.createElement('div');
+                cardsContainer.className = 'cards-container';
+                columnDiv.appendChild(cardsContainer);
+
+                columns[status].forEach(record => {
+                    const cardDiv = document.createElement('div');
+                    cardDiv.className = 'kanban-card';
+                    // Stocke l'ID de l'enregistrement Grist pour une utilisation future (par exemple, pour la modification)
+                    cardDiv.setAttribute('data-record-id', record.id);
+
+                    const cardTitle = document.createElement('div');
+                    cardTitle.className = 'card-title';
+                    cardTitle.textContent = record.Tache || 'Tâche sans titre';
+                    cardDiv.appendChild(cardTitle);
+
+                    const cardAssignee = document.createElement('div');
+                    cardAssignee.className = 'card-assignee';
+                    cardAssignee.textContent = record.Assignation ? `Assigné à: ${record.Assignation}` : 'Non assigné';
+                    cardDiv.appendChild(cardAssignee);
+
+                    cardsContainer.appendChild(cardDiv);
+                });
+                kanbanAppDiv.appendChild(columnDiv);
+            });
+        }
+
+        // Initialisation de l'API Grist
+        grist.ready({
+            requiredAccess: 'read table', // Le widget a besoin d'un accès en lecture à la table
+            columns: [ // Déclare les colonnes de la table que le widget utilisera
+                { id: 'Statut', title: 'Statut', type: 'Text' },
+                { id: 'Tache', title: 'Tache', type: 'Text' },
+                { id: 'Assignation', title: 'Assignation', type: 'Text' }
+            ]
+        });
+
+        // Écoute les changements d'enregistrement de Grist
+        grist.onRecords(newRecords => {
+            records = newRecords;
+            renderKanban();
+            // Cache le message de chargement une fois les données reçues et rendues
+            const loadingElement = document.getElementById('loading');
+            if (loadingElement) {
+                loadingElement.style.display = 'none';
+            }
+        });
+
+        // Exécute le rendu initial une fois que le DOM est complètement chargé
+        // (utile si les enregistrements sont déjà disponibles avant grist.onRecords)
+        document.addEventListener('DOMContentLoaded', () => {
+            kanbanAppDiv = document.getElementById('kanban-app');
+            // Le grist.onRecords déclenchera le rendu réel une fois les données reçues.
+            // Le message de chargement reste visible jusqu'à ce moment.
+        });
+    </script>
+</body>
+</html>
